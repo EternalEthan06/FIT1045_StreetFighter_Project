@@ -4,6 +4,7 @@
 # include "player.h"
 # include <iostream>
 # include <fstream>
+# include <math.h>
 
 using std::ofstream;
 using std::ifstream;
@@ -218,73 +219,13 @@ class game
         }
 
         /**
-         * @brief Controls Fighter 2 in a normal combat loop.
-         * @param distance The distance between Fighter 1 and Fighter 2.
+         * @brief Executes the specific action determined by the AI logic.
+         * @param current_decision The action the AI has decided to take.
+         * @param distance The current distance between Fighter 1 and Fighter 2.
          */
-        void handle_normal_combat(double distance)
+        void execute_decision(ai_action current_decision, double distance)
         {
-            // Check higher priority states first. If any of these helper methods return true, 
-            // the AI took an action and we should return early to prevent multiple actions per frame.
-            if (handle_normal_low_stamina(distance)) 
-            {
-                return;
-            }
-
-            if (handle_normal_opponent_low_stamina(distance)) 
-            {
-                return;
-            }
-
-            if (handle_normal_dodge()) 
-            {
-                return;
-            }
-
-            // --- MACHINE LEARNING ---
-            // Check if the brain has actually learned some memories
-            if (length(ai_brain) > 0)
-            {
-                static int decision_timer = 0;
-                static ai_action current_decision = AI_IDLE;
-
-                // Only allow the AI to rethink its strategy when the timer hits 0
-                if (decision_timer <= 0)
-                {
-                    // --- SENSORY NOISE ---
-                    double perceived_distance = distance;
-
-                    if (ai_difficulty == EASY)
-                    {
-                        perceived_distance += rnd(-400.0, 400.0); // Modify the data to an extreme extent
-                    }
-                    else if (ai_difficulty == MEDIUM)
-                    {
-                        perceived_distance += rnd(-100.0, 100.0); // Slight miscalculations
-                    }
-
-                    // Ask the ML Brain what the human would do right now
-                    current_decision = predict_best_action(perceived_distance, fighter2->get_stamina(), fighter1->get_stamina());
-
-                    // That decision is locked in for a specific amount of time based on difficulty
-                    if (ai_difficulty == HARD)
-                    {
-                        decision_timer = 5; // Reaction of 0.08s
-                    }
-                    else if (ai_difficulty == MEDIUM)
-                    {
-                        decision_timer = 30; // Normal reaction of 0.5s
-                    }
-                    else if (ai_difficulty == EASY)
-                    {
-                        decision_timer = 90; // Slow reaction time of 1.5s
-                    }
-                }
-
-                // Count down the decision timer every frame
-                decision_timer--;
-
-                // Execute the decision
-                if (current_decision == AI_ATTACK)
+            if (current_decision == AI_ATTACK)
                 {
                     fighter2->perform_attack();
                 }
@@ -341,6 +282,171 @@ class game
                         }
                     }
                 }
+        }
+
+        /**
+         * @brief Manages the attack probabilities within the decision tree AI.
+         * Uses RNG to determine if the AI attacks or uses an ability this frame based on difficulty.
+         */
+        void ai_decision_tree_attack()
+        {
+            // Using a random number so the AI doesn't perfectly attack every single frame
+            double random_chance = rnd();
+
+            if (ai_difficulty == HARD)
+            {
+                if (random_chance < 0.025)
+                {
+                    fighter2->perform_attack(); // 2.5% chance every frame to attack
+                }
+                else if (random_chance > 0.98)
+                {
+                    fighter2->use_ability(1, fighter1); // 2% chance every frame to use "Toxic Dose" ability
+                }
+            }
+            else if (ai_difficulty == MEDIUM)
+            {
+                if (random_chance < 0.01)
+                {
+                    fighter2->perform_attack(); // 1% chance every frame to attack
+                }
+                else if (random_chance > 0.99)
+                {
+                    fighter2->use_ability(1, fighter1); // 1% chance every frame to use "Toxic Dose" ability
+            }
+            }
+            else
+            {
+                if (random_chance < 0.005)
+                {
+                    fighter2->perform_attack(); // 0.5% chance every frame to attack
+                }
+                else if (random_chance > 0.99)
+                {
+                    fighter2->use_ability(1, fighter1); // 1% chance every frame to use "Toxic Dose" ability
+                }
+            }
+        }
+
+        /**
+         * @brief Determines the movement and spacing strategy for the decision tree AI.
+         * @param distance Current distance between the fighters.
+         * @param desired_distance The optimal distance the AI wants to maintain.
+         */
+        void ai_decision_tree_actions(double distance, double desired_distance)
+        {
+            // If the player is far away, move towards them
+            if (distance > desired_distance)
+            {
+                fighter2->move_right();
+            }
+            else if (distance < -desired_distance)
+            {
+                fighter2->move_left();
+            }
+            else
+            {
+                fighter2->stop_moving(); // Stop walking to attack
+
+                ai_decision_tree_attack();
+            }
+        }
+
+        /**
+         * @brief Artificially injects noise into the AI's perceived distance based on difficulty.
+         * @param distance The true distance between the fighters.
+         * @return The distorted distance perceived by the AI.
+         */
+        double add_sensory_noise(double distance)
+        {
+            // --- SENSORY NOISE ---
+            double perceived_distance = distance;
+
+            if (ai_difficulty == EASY)
+            {
+                perceived_distance += rnd(-400.0, 400.0); // Modify the data to an extreme extent
+            }
+            else if (ai_difficulty == MEDIUM)
+            {
+                perceived_distance += rnd(-100.0, 100.0); // Slight miscalculations
+            }
+
+            return perceived_distance;
+        }
+
+        /**
+         * @brief Determines how many frames the AI must wait before making a new decision.
+         * Simulates human reaction time based on difficulty settings.
+         * @return Number of frames to lock the current decision.
+         */
+        int determine_decision_timer()
+        {
+            int decision_timer = 0;
+
+            if (ai_difficulty == HARD)
+            {
+                decision_timer = 5; // Reaction of 0.08s
+            }
+            else if (ai_difficulty == MEDIUM)
+            {
+                decision_timer = 30; // Normal reaction of 0.5s
+            }
+            else if (ai_difficulty == EASY)
+            {
+                decision_timer = 90; // Slow reaction time of 1.5s
+            }
+
+            return decision_timer;
+        }
+
+        /**
+         * @brief Controls Fighter 2 in a normal combat loop.
+         * @param distance The distance between Fighter 1 and Fighter 2.
+         */
+        void handle_normal_combat(double distance)
+        {
+            // Check higher priority states first. If any of these helper methods return true, 
+            // the AI took an action and we should return early to prevent multiple actions per frame.
+            if (handle_normal_low_stamina(distance)) 
+            {
+                return;
+            }
+
+            if (handle_normal_opponent_low_stamina(distance)) 
+            {
+                return;
+            }
+
+            if (handle_normal_dodge()) 
+            {
+                return;
+            }
+
+            // --- MACHINE LEARNING ---
+            // Check if the brain has actually learned some memories
+            if (length(ai_brain) > 0)
+            {
+                static int decision_timer = 0;
+                static ai_action current_decision = AI_IDLE;
+
+                // Only allow the AI to rethink its strategy when the timer hits 0
+                if (decision_timer <= 0)
+                {
+                    // --- SENSORY NOISE ---
+                    double perceived_distance = add_sensory_noise(distance);
+                    
+                    // Ask the ML Brain what the human would do right now
+                    current_decision = predict_best_action(perceived_distance, fighter2->get_stamina(), fighter1->get_stamina());
+
+                    // That decision is locked in for a specific amount of time based on difficulty
+                    decision_timer = determine_decision_timer();
+                }
+
+                // Count down the decision timer every frame
+                decision_timer--;
+
+                // Execute the decision
+                execute_decision(current_decision, distance);
 
                 // We used the ML Brain, so we return early to skip the other logics
                 return;
@@ -362,56 +468,7 @@ class game
                 }
             }
 
-            // If the player is far away, move towards them
-            if (distance > desired_distance)
-            {
-                fighter2->move_right();
-            }
-            else if (distance < -desired_distance)
-            {
-                fighter2->move_left();
-            }
-            else
-            {
-                fighter2->stop_moving(); // Stop walking to attack
-
-                // Using a random number so the AI doesn't perfectly attack every single frame
-                double random_chance = rnd();
-
-                if (ai_difficulty == HARD)
-                {
-                    if (random_chance < 0.025)
-                    {
-                        fighter2->perform_attack(); // 2.5% chance every frame to attack
-                    }
-                    else if (random_chance > 0.98)
-                    {
-                        fighter2->use_ability(1, fighter1); // 2% chance every frame to use "Toxic Dose" ability
-                    }
-                }
-                else if (ai_difficulty == MEDIUM)
-                {
-                    if (random_chance < 0.01)
-                    {
-                        fighter2->perform_attack(); // 1% chance every frame to attack
-                    }
-                    else if (random_chance > 0.99)
-                    {
-                        fighter2->use_ability(1, fighter1); // 1% chance every frame to use "Toxic Dose" ability
-                }
-                }
-                else
-                {
-                    if (random_chance < 0.005)
-                    {
-                        fighter2->perform_attack(); // 0.5% chance every frame to attack
-                    }
-                    else if (random_chance > 0.99)
-                    {
-                        fighter2->use_ability(1, fighter1); // 1% chance every frame to use "Toxic Dose" ability
-                    }
-                }
-            }
+            ai_decision_tree_actions(distance, desired_distance);
         }
 
         /**
@@ -961,24 +1018,12 @@ class game
         }
 
         /**
-         * @brief Master draw function. Clears the screen and draws the background and all characters.
+         * @brief Renders the health bars for both players.
+         * @param max_bar_width The maximum visual width of the health bars.
+         * @param bar_height The height of the health bars.
          */
-        void draw() const
+        void draw_health_bars(double max_bar_width, double bar_height) const
         {
-            clear_screen(COLOR_WHITE);
-
-            if (background_image != nullptr)
-            {
-                draw_bitmap(background_image, 0, 0);
-            }
-
-            fighter1->draw();
-            fighter2->draw();
-
-            // --- DRAW HEALTH BARS ---
-            double max_bar_width = 400.0;  // The size of a full health bar
-            double bar_height = 30.0;
-
             // Player 1 health bar
             double p1_health_pct = fighter1->get_health() / fighter1->get_max_health();
             fill_rectangle(COLOR_RED, 50, 50, max_bar_width, bar_height);
@@ -988,8 +1033,13 @@ class game
             double p2_health_pct = fighter2->get_health() / fighter2->get_max_health();
             fill_rectangle(COLOR_RED, WINDOW_WIDTH - 50 - max_bar_width, 50, max_bar_width, bar_height);
             fill_rectangle(COLOR_GREEN, WINDOW_WIDTH - 50 - max_bar_width, 50, max_bar_width * p2_health_pct, bar_height);
+        }
 
-            // --- DRAW THE GAME TIMER ---
+        /**
+         * @brief Renders the countdown round timer at the top center of the screen.
+         */
+        void draw_game_timer() const
+        {
             // Convert the timer into a solid integer using 'ceil' to display 15.1 seconds as 16.
             int display_time = ceil(round_timer);
             string timer_str = to_string(display_time);
@@ -1020,8 +1070,15 @@ class game
 
             // Draw the real text on top
             draw_text(timer_str, timer_color, font_name, font_size, text_x, text_y);
+        }
 
-            // --- DRAW SHIELD BARS (If Active) ---
+        /**
+         * @brief Renders the shield bars for players with active Immunoshield abilities.
+         * @param max_bar_width The maximum visual width of the health bars.
+         * @param bar_height The height of the shield bars.
+         */
+        void draw_shield_bars(double max_bar_width, double bar_height) const
+        {
             double shield_max = 50.0; // The maximum health of hte Immunoshield
             double shield_height = 10.0;
 
@@ -1042,13 +1099,18 @@ class game
                 // Draw a thin blue bar slightly below the main health bar
                 fill_rectangle(COLOR_CYAN, WINDOW_WIDTH - 50 - max_bar_width, 85, max_bar_width * p2_shield_pct, shield_height);
             }
+        }
 
-            // --- DRAW STAMINA BARS ---
-            double stamina_height = 10.0;
+        /**
+         * @brief Renders the stamina bars for both players.
+         * @param stamina_height The height of the stamina bar.
+         * @param max_bar_width The maximum visual width of the stamina bar.
+         * @param p1_stamina_y The y-coordinate for Player 1's stamina bar.
+         * @param p2_stamina_y The y-coordinate for Player 2's stamina bar.
+         */
+        void draw_stamina_bars(double stamina_height, double max_bar_width, double p1_stamina_y, double p2_stamina_y) const
+        {
             color gold = rgb_color(225, 215, 0); // Yellowish-Gold colour
-
-            // Player 1 Stamina
-            double p1_stamina_y = 85.0;  // Default stamina bar y position
 
             if (fighter1->get_shield_timer() > 0)
             {
@@ -1063,9 +1125,6 @@ class game
             // Draw the gold bar on top of it
             fill_rectangle(gold, 50, p1_stamina_y, max_bar_width * p1_stamina_pct, stamina_height);
 
-            // Player 2 Stamina
-            double p2_stamina_y = 85.0;
-
             if (fighter2->get_shield_timer() > 0)
             {
                 p2_stamina_y += 15.0; // Push the stamina bar down 15 pixels if the shield is currently active
@@ -1078,8 +1137,15 @@ class game
 
             // Draw the gold bar on top of it
             fill_rectangle(gold, WINDOW_WIDTH - 50 - max_bar_width, p2_stamina_y, max_bar_width * p2_stamina_pct, stamina_height);
+        }
 
-            // --- DRAW PLAYER 1 ABILITIES ---
+        /**
+         * @brief Renders the ability icons and shrinking cooldown indicators for Player 1.
+         * @param center_offset The offset to perfectly center the cooldown circle.
+         * @param max_radius The full radius of the cooldown circle.
+         */
+        void draw_player_1_abilities(double center_offset, double max_radius) const
+        {
             // Figure out which images to use
             bitmap p1_icon_1 = (p1_choice == 1) ? corrupted_bmp : immunoshield_bmp;
             bitmap p1_icon_2 = (p1_choice == 1) ? glitch_bmp : toxic_bmp;
@@ -1107,10 +1173,6 @@ class game
             double p1_ability1_pct = (double) p1_ability1.get_current_cooldown() / p1_ability1.get_max_cooldown();
             double p1_ability2_pct = (double) p1_ability2.get_current_cooldown() / p1_ability2.get_max_cooldown();
 
-            // Draw the circle perfectly over the center of the icon
-            double center_offset = 25.0;
-            double max_radius = 25.0;
-
             if (p1_ability1_pct > 0)
             {
                 // Draws a dark, 75% transparent circle that shrinks as the pct goes down from 1.0 to 0.0
@@ -1122,8 +1184,15 @@ class game
                 // Draws a dark, 75% transparent circle that shrinks as the pct goes down from 1.0 to 0.0
                 fill_circle(rgba_color(0, 0, 0, 180), p1_icon2_x + center_offset, p1_icon_y + center_offset, max_radius * p1_ability2_pct);
             }
+        }
 
-            // --- DRAW PLAYER 2 ABILITIES ---
+        /**
+         * @brief Renders the ability icons and shrinking cooldown indicators for Player 2.
+         * @param center_offset The offset to perfectly center the cooldown circle.
+         * @param max_radius The full radius of the cooldown circle.
+         */
+        void draw_player_2_abilities(double center_offset, double max_radius) const
+        {
             // Figure out which images to use
             bitmap p2_icon_1 = (p2_choice == 1) ? glitch_bmp : immunoshield_bmp;
             bitmap p2_icon_2 = (p2_choice == 1) ? corrupted_bmp : toxic_bmp;
@@ -1159,36 +1228,45 @@ class game
                 // Draws a dark, 75% transparent circle that shrinks as the pct goes down from 1.0 to 0.0
                 fill_circle(rgba_color(0, 0, 0, 180), p2_icon2_x + center_offset, p2_icon_y + center_offset, max_radius * p2_ability2_pct);
             }
+        }
 
-            // --- DRAW COUNTDOWN TEXT ---
-            if (state == COUNTDOWN)
+        /**
+         * @brief Renders the 3-2-1-FIGHT countdown sequence before the match begins.
+         */
+        void draw_countdown() const
+        {
+            string text = "";
+
+            // Convert the 60 frames per second timer into seconds
+            if (countdown_timer > 180)
             {
-                string text = "";
-
-                // Convert the 60 frames per second timer into seconds
-                if (countdown_timer > 180)
-                {
-                    text = "3";
-                }
-                else if (countdown_timer > 120)
-                {
-                    text = "2";
-                }
-                else if (countdown_timer > 60)
-                {
-                    text = "1";
-                }
-                else
-                {
-                    text = "FIGHT";
-                }
-
-                // Center the text
-                double text_w = text_width(text, "arcade", 150);
-                draw_text(text, COLOR_RED, "arcade", 150, (WINDOW_WIDTH / 2) - (text_w / 2), (WINDOW_HEIGHT / 2) - 75);
+                text = "3";
+            }
+            else if (countdown_timer > 120)
+            {
+                text = "2";
+            }
+            else if (countdown_timer > 60)
+            {
+                text = "1";
+            }
+            else
+            {
+                text = "FIGHT";
             }
 
-            // --- DRAW DAMAGE MULTIPLIERS (If Activated) ---
+            // Center the text
+            double text_w = text_width(text, "arcade", 150);
+            draw_text(text, COLOR_RED, "arcade", 150, (WINDOW_WIDTH / 2) - (text_w / 2), (WINDOW_HEIGHT / 2) - 75);
+        }
+
+        /**
+         * @brief Renders a visual multiplier indicator for Player 1 when a damage buff is active.
+         * @param p1_stamina_y The y-coordinate for Player 1's stamina bar, used for positioning.
+         * @param stamina_height The height of the stamina bar.
+         */
+        void draw_player_1_multiplier(double p1_stamina_y, double stamina_height) const
+        {
             // Player 1 Multiplier
             double p1_multiplier = fighter1->get_damage_multiplier();
 
@@ -1206,7 +1284,15 @@ class game
                 // Draw the text in white inside the box
                 draw_text(multiplier_text, COLOR_WHITE, "arial", 14, 55, p1_multiplier_y + 2);
             }
+        }
 
+        /**
+         * @brief Renders a visual multiplier indicator for Player 2 when a damage buff is active.
+         * @param p2_stamina_y The y-coordinate for Player 2's stamina bar, used for positioning.
+         * @param stamina_height The height of the stamina bar.
+         */
+        void draw_player_2_multiplier(double p2_stamina_y, double stamina_height) const
+        {
             // Player 2 Multiplier
             double p2_multiplier = fighter2->get_damage_multiplier();
 
@@ -1227,24 +1313,91 @@ class game
                 // Draw the text in white inside the box
                 draw_text(multiplier_text, COLOR_WHITE, "arial", 14, box_x + 8, p2_multiplier_y + 2);
             }
+        }
+
+        /**
+         * @brief Renders the game over screen, announcing the winner.
+         */
+        void draw_game_over() const
+        {
+            string text = "";
+            double text_w = 0.0;
+
+            if (fighter1->get_health() <= 0)
+            {
+                text = "PLAYER 2 WINS!";
+                text_w = text_width(text, "arial", 50);
+                draw_text(text, COLOR_RED, "arial", 50, (WINDOW_WIDTH / 2) - (text_w / 2), WINDOW_HEIGHT / 2);
+            }
+            else
+            {
+                text = "PLAYER 1 WINS!";
+                text_w = text_width(text, "arial", 50);
+                draw_text(text, COLOR_RED, "arial", 50, (WINDOW_WIDTH / 2) - (text_w / 2), WINDOW_HEIGHT / 2);
+            }
+        }
+
+        /**
+         * @brief Master draw function. Clears the screen and draws the background and all characters.
+         */
+        void draw() const
+        {
+            clear_screen(COLOR_WHITE);
+
+            if (background_image != nullptr)
+            {
+                draw_bitmap(background_image, 0, 0);
+            }
+
+            fighter1->draw();
+            fighter2->draw();
+
+            double max_bar_width = 400.0;  // The size of a full health bar
+            double bar_height = 30.0;
+
+            // --- DRAW HEALTH BARS ---
+            draw_health_bars(max_bar_width, bar_height);
+
+            // --- DRAW THE GAME TIMER ---
+            draw_game_timer();
+
+            // --- DRAW SHIELD BARS (If Active) ---
+            draw_shield_bars(max_bar_width, bar_height);
+
+            double stamina_height = 10.0;
+
+            // Player 1 Stamina
+            double p1_stamina_y = 85.0;  // Default stamina bar y position
+
+            // Player 2 Stamina
+            double p2_stamina_y = 85.0;
+
+            // --- DRAW STAMINA BARS ---
+            draw_stamina_bars(stamina_height, max_bar_width, p1_stamina_y, p2_stamina_y);
+
+            
+            // Draw the circle perfectly over the center of the icon
+            double center_offset = 25.0;
+            double max_radius = 25.0;
+
+            // --- DRAW PLAYER 1 ABILITIES ---
+            draw_player_1_abilities(center_offset, max_radius);
+            // --- DRAW PLAYER 2 ABILITIES ---
+            draw_player_2_abilities(center_offset, max_radius);
+
+            // --- DRAW COUNTDOWN TEXT ---
+            if (state == COUNTDOWN)
+            {
+                draw_countdown();
+            }
+
+            // --- DRAW DAMAGE MULTIPLIERS (If Activated) ---
+            draw_player_1_multiplier(p1_stamina_y, stamina_height);
+            draw_player_2_multiplier(p2_stamina_y, stamina_height);
 
             if (state == GAME_OVER)
             {
-                string text = "";
-                double text_w = 0.0;
-
-                if (fighter1->get_health() <= 0)
-                {
-                    text = "PLAYER 2 WINS!";
-                    text_w = text_width(text, "arial", 50);
-                    draw_text(text, COLOR_RED, "arial", 50, (WINDOW_WIDTH / 2) - (text_w / 2), WINDOW_HEIGHT / 2);
-                }
-                else
-                {
-                    text = "PLAYER 1 WINS!";
-                    text_w = text_width(text, "arial", 50);
-                    draw_text(text, COLOR_RED, "arial", 50, (WINDOW_WIDTH / 2) - (text_w / 2), WINDOW_HEIGHT / 2);
-                }
+                draw_game_over();
             }
         }
 

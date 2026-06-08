@@ -207,16 +207,12 @@ class character
         }
 
         /**
-         * @brief Updates the character's physics (gravity, velocity, collisions) and syncs the sprite.
-         * Should be called once per frame.
+         * @brief Updates the character's stamina.
+         * Drains stamina while crouching, regenerates stamina while idle.
          */
-        virtual void update()
+        void update_stamina()
         {
-            // --- TIME_BASED STAMINA TICK ---
-            // This block is triggered every 50 milliseconds (20 times per second)
-            if (timer_ticks(stamina_timer) >= 50)
-            {
-                if (is_crouching)
+            if (is_crouching)
                 {
                     stamina -= 2.0; // Drain 2 stamina every 50ms while crouching
 
@@ -237,65 +233,68 @@ class character
                         stamina = max_stamina;
                     }
                 }
-                // Reset the stipwatch so it can count the next 50ms
+                // Reset the stopwatch so it can count the next 50ms
 
                 reset_timer(stamina_timer);
+        }
+
+        /**
+         * @brief Handles the toxic dose damage over time effect.
+         * Ticks down the poison timer and deals damage every second.
+         */
+        void update_poison_timer()
+        {
+            poison_timer--;
+
+            // Only deal damage every 60 frames (1 second)
+            if (poison_timer % 60 == 0)
+            {
+                health -= 2.0; // Deal 2.0 attack damage for every second of the character being poisoned
+                spawn_damage_text(2.0);
             }
 
-            // --- ABILITY COUNTDOWN TIMER ---
-            abilities[0].update_cooldown();
-            abilities[1].update_cooldown();
-
-            // --- POISON TIMER LOGIC ---
-            if (is_poisoned)
+            // Stop the poison effect after the timer has run out
+            if (poison_timer <= 0)
             {
-                poison_timer--;
-
-                // Only deal damage every 60 frames (1 second)
-                if (poison_timer % 60 == 0)
-                {
-                    health -= 2.0; // Deal 2.0 attack damage for every second of the character being poisoned
-                    spawn_damage_text(2.0);
-                }
-
-                // Stop the poison effect after the timer has run out
-                if (poison_timer <= 0)
-                {
-                    is_poisoned = false;
-                }
+                is_poisoned = false;
             }
+        }
 
-            // --- GLITCH TIMER LOGIC ---
-            if (is_glitched)
+        /**
+         * @brief Handles the glitch protocol effect.
+         * Ticks down the glitch timer and restores normal control when finished.
+         */
+        void update_glitch_timer()
+        {
+            glitch_timer--; // Start counting down the timer of the glitch
+            // Reset the boolean back to false to prevent the character from 
+            // continuously being randomly controlled
+            if (glitch_timer <= 0)
             {
-                glitch_timer--; // Start counting down the timer of the glitch
-                // Reset the boolean back to false to prevent the character from 
-                // continuously being randomly controlled
-                if (glitch_timer <= 0)
-                {
-                    is_glitched = false; 
-                }
+                is_glitched = false; 
             }
+        }
 
-            // --- ATTACK TIMER LOGIC ---
-            if (is_attacking)
-            {
-                attack_frames--;
+        /**
+         * @brief Handles the duration of an attack.
+         * Ticks down the attack timer and resets attack state and power when finished.
+         */
+        void update_attack_timer()
+        {
+            attack_frames--;
                 if (attack_frames <= 0)
                 {
                     is_attacking = false;
                     attack_power = base_attack_power; // Reset the attack power for (CS Student's ability)
                 }
-            }
+        }
 
-            // --- GRAVITY AND JUMPING LOGIC ---
-            // If the character is in the air (y is less than 300) or moving upwards (dy < 0)
-            if (y < 300 || dy < 0) 
-            {
-                dy += 0.8; // Gravity constantly pulls them down by increasing their downward velocity
-            }
-
-            // --- DRAWING DAMAGE TEXTS ---
+        /**
+         * @brief Animates the floating damage numbers.
+         * Moves all damage texts upwards and decreases their lifetime.
+         */
+        void update_damage_texts()
+        {
             // Move all the damage text upwards and decrease their timer
             for (int i = 0; i < length(floating_texts); i++)
             {
@@ -311,6 +310,72 @@ class character
                     floating_texts.remove(i);
                 }
             }
+        }
+
+        /**
+         * @brief Prevents the character from moving off the edges of the screen.
+         */
+        void prevent_collision()
+        {
+            // Prevent the character from going out of the screen (Left boundary)
+            if (x <= 0)
+            {
+                x = 0;  // Stop at that position
+                dx = 0; // Stop moving
+            }
+
+            // Prevent the character from going out of the screen (Right boundary)
+            if (x >= 1100)
+            {
+                x = 1100;  // Stop at that position
+                dx = 0;    // Stop moving
+            }
+        }
+
+        /**
+         * @brief Updates the character's physics (gravity, velocity, collisions) and syncs the sprite.
+         * Should be called once per frame.
+         */
+        virtual void update()
+        {
+            // --- TIME_BASED STAMINA TICK ---
+            // This block is triggered every 50 milliseconds (20 times per second)
+            if (timer_ticks(stamina_timer) >= 50)
+            {
+                update_stamina();
+            }
+
+            // --- ABILITY COUNTDOWN TIMER ---
+            abilities[0].update_cooldown();
+            abilities[1].update_cooldown();
+
+            // --- POISON TIMER LOGIC ---
+            if (is_poisoned)
+            {
+                update_poison_timer();
+            }
+
+            // --- GLITCH TIMER LOGIC ---
+            if (is_glitched)
+            {
+                update_glitch_timer();
+            }
+
+            // --- ATTACK TIMER LOGIC ---
+            if (is_attacking)
+            {
+                update_attack_timer();
+            }
+
+            // --- GRAVITY AND JUMPING LOGIC ---
+            // If the character is in the air (y is less than 300) or moving upwards (dy < 0)
+            if (y < 300 || dy < 0) 
+            {
+                dy += 0.8; // Gravity constantly pulls them down by increasing their downward velocity
+            }
+
+            // --- DRAWING DAMAGE TEXTS ---
+            update_damage_texts();
             
             // --- APPLY VELOCITY TO POSITION ---
             x += dx;
@@ -326,19 +391,7 @@ class character
             }
 
             // --- WINDOW COLLISION ---
-            // Prevent the character from going out of the screen (Left boundary)
-            if (x <= 0)
-            {
-                x = 0;  // Stop at that position
-                dx = 0; // Stop moving
-            }
-
-            // Prevent the character from going out of the screen (Right boundary)
-            if (x >= 1100)
-            {
-                x = 1100;  // Stop at that position
-                dx = 0;    // Stop moving
-            }
+            prevent_collision();
 
             update_animation(); // Set the correct sprite before syncing its position
 
@@ -631,6 +684,11 @@ class character
             return is_crouching;
         }
 
+        /**
+         * @brief Gets an ability from the character's ability slots.
+         * @param index The index of the ability (0 or 1).
+         * @return The requested ability.
+         */
         ability get_ability(int index) const
         {
             return abilities[index];
