@@ -36,9 +36,41 @@ This game features a custom built **Hybrid AI Architecture** designed to study a
 * **Ability 1**: `Right Shift`
 * **Ability 2**: `Right Alt`
 
-## Setup & Running
+## Build & Run Instructions
 
-1. Ensure you have the **SplashKit** framework installed on your system.
-2. Navigate to this directory in your terminal.
-3. Compile the game by running: `skm clang++ *.cpp -o fighter`
-4. Execute the game to begin playing!
+This project is built using the **SplashKit** framework and compiled with `clang++`. Follow these steps to build and run the game from source:
+
+### Prerequisites
+1. **Install SplashKit**: You must have the SplashKit Manager (`skm`) installed. If you do not have it, follow the official installation guide at [splashkit.io/installation](https://splashkit.io/articles/installation/).
+2. **Install a C++ Compiler**: 
+   * **Windows**: Install MSYS2 and the `clang++` toolchain (which is included in the standard SplashKit Windows setup).
+   * **macOS**: Install Xcode Command Line Tools (`xcode-select --install`).
+
+### Compiling the Game
+1. Open your terminal (Command Prompt, PowerShell, or macOS Terminal).
+2. Navigate to the root directory of this project where `street_fighter.cpp` is located:
+   ```bash
+   cd path/to/StreetFighter
+   ```
+3. Run the following SplashKit compile command to build the executable:
+   ```bash
+   skm clang++ *.cpp -o fighter
+   ```
+   *(This command tells `skm` to use `clang++` to compile all `.cpp` files in the directory and output an executable named `fighter`)*
+
+### Running the Game
+Once compilation is successful, run the generated executable:
+
+* **On Windows**:
+  ```bash
+  ./fighter.exe
+  ```
+
+* **On macOS / Linux**:
+  ```bash
+  ./fighter
+  ```
+
+### Troubleshooting
+* **Missing Assets?** Ensure that the `Resources` folder (containing the fonts, sounds, and images) is located in the exact same directory as your compiled executable.
+* **Compilation Errors?** Ensure all header files (`.h`) and source files (`.cpp`) are in the same root folder, and that your `skm` environment is fully updated (`skm update`).
